@@ -60,7 +60,10 @@ io.on("connection", (socket) => {
     } else {
       messages.push({ id: id, message: [data.message] });
     }
-    socket.to(data.to).emit("private-message", data.message);
+    socket.to(data.to).emit("private-message", {
+      message: data.message,
+      senderName: data.from,
+    });
   });
 
   socket.on("get conversation", (data) => {

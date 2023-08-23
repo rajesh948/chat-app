@@ -34,27 +34,32 @@
           <div class="typing-text" v-if="!selectedUser?.type && user?.type">
             typing....
           </div>
+          <svg-icon
+            v-if="user.isShowAlert"
+            style="color: #009579"
+            type="mdi"
+            :path="imgPath"
+          ></svg-icon>
         </li>
       </ul>
     </aside>
     <main v-if="selectedUser">
       <header>
-        <div class="user-logo">{{ selectedUser.name.substr(0, 1) }}</div>
+        <div class="user-logo">{{ selectedUser.name?.substr(0, 1) }}</div>
         <div>
           <h2>{{ selectedUser.name }}</h2>
-          <h3 v-if="selectedUser.active">
-            <span class="status green"></span>
-            online
-          </h3>
-          <h3 v-else>
-            <span class="status orange"></span>
-            offline
-          </h3>
+          <div v-if="selectedUser?.type" class="typing-text">typing....</div>
+          <div v-else>
+            <h3 v-if="selectedUser.active">
+              <span class="status green"></span>
+              online
+            </h3>
+            <h3 v-else>
+              <span class="status orange"></span>
+              offline
+            </h3>
+          </div>
         </div>
-        <img
-          src="https://s3-us-west-2.amazonaws.com/s.cdpn.io/1940306/ico_star.png"
-          alt=""
-        />
       </header>
       <ul id="chat" v-if="conversation?.length">
         <li
@@ -73,7 +78,6 @@
         </li>
       </ul>
       <footer>
-        <div class="typing-text" v-if="selectedUser?.type">typing....</div>
         <textarea
           @input="displayTyping"
           v-model="inputMessage"
@@ -86,10 +90,17 @@
 </template>
 <script>
 import { socket } from "@/plugins/socket/socket";
+import SvgIcon from "@jamescoyle/vue-icon";
+import { mdiChatAlert } from "@mdi/js";
+
 import { ref } from "vue";
 import { useRouter } from "vue-router";
 export default {
+  components: {
+    SvgIcon,
+  },
   setup() {
+    const imgPath = mdiChatAlert;
     const router = useRouter();
     const loginUser = ref(null);
     const selectedUser = ref(null);
@@ -108,25 +119,32 @@ export default {
       users.value = data.filter((u) => u.name !== loginUser.value.name);
     });
     socket.on("connected user", (user) => {
-      users.value.push(user);
+      if (users.value) users.value.push(user);
     });
     socket.on("reconnected user", (userName) => {
-      users.value.forEach((user) => {
-        if (user.name === userName) {
-          user.active = true;
-        }
-      });
+      if (users.value)
+        users.value.forEach((user) => {
+          if (user.name === userName) {
+            user.active = true;
+          }
+        });
     });
 
     socket.on("disconnect user", (userName) => {
-      users.value.forEach((user) => {
-        if (user.name === userName) {
-          user.active = false;
-        }
-      });
+      if (users.value)
+        users.value.forEach((user) => {
+          if (user.name === userName) {
+            user.active = false;
+          }
+        });
     });
     const onToggleUserMessagePanel = (userName) => {
       selectedUser.value = users.value.find((user) => user.name === userName);
+      users.value.forEach((user) => {
+        if (user.name === userName) {
+          user.isShowAlert = false;
+        }
+      });
       socket.emit("get conversation", {
         from: loginUser.value.name,
         to: selectedUser.value.name,
@@ -152,8 +170,15 @@ export default {
       inputMessage.value = null;
     };
 
-    socket.on("private-message", (msg) => {
-      conversation.value.push(msg);
+    socket.on("private-message", ({ message, senderName }) => {
+      conversation.value.push(message);
+      if (!selectedUser.value || selectedUser.value.name !== senderName) {
+        users.value.forEach((user) => {
+          if (user.name === senderName) {
+            user.isShowAlert = true;
+          }
+        });
+      }
     });
     let flag = true;
     let timeOut;
@@ -190,6 +215,7 @@ export default {
       conversation,
       loginUser,
       displayTyping,
+      imgPath,
     };
   },
 };

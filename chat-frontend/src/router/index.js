@@ -15,7 +15,7 @@ export const router = createRouter({
       component: registerPage,
     },
     {
-      path: "/",
+      path: "/chat",
       name: "chatting",
       component: chattingPage,
     },
