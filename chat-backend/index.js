@@ -2,15 +2,17 @@ const httpServer = require("http").createServer();
 const PORT = process.env.PORT || 3000;
 const io = require("socket.io")(httpServer, {
   cors: {
-    origin: "http://localhost:8080",
+    origin: ["http://localhost:8080"],
   },
 });
 
 const users = [];
 const messages = [];
+const groups = [];
+let jointRoom = [];
 io.on("connection", (socket) => {
   socket.on("register", (user) => {
-    console.log("connected User:", user);
+    console.log("register user::", user);
     if (users.find((u) => u.email === user.email)) {
       return socket.emit("already-exist", {
         message: "Email Id Already Register !",
@@ -32,6 +34,8 @@ io.on("connection", (socket) => {
   });
 
   socket.on("login", (user) => {
+    console.log("lOGIN:::", socket.rooms.has("rajesh"));
+    console.log("rooms####:::", io.sockets.adapter.rooms);
     const index = users.findIndex(
       (u) => u.email === user.email && u.password === user.password
     );
@@ -40,10 +44,16 @@ io.on("connection", (socket) => {
       socket.emit("already-exist", false);
       user.active = true;
       socket.username = users[index].name;
-      socket.join(users[index].name);
+      const joinGroups = users[index].groups
+        ? groups.filter((group) => users[index].groups.includes(group.name))
+        : [];
+      jointRoom = joinGroups.map((group) => group.name);
+      jointRoom.push(users[index].name);
+      socket.join(jointRoom);
+
       users[index].active = true;
       socket.emit("login-user", users[index]);
-      socket.emit("users", users);
+      socket.emit("users", [...users, ...joinGroups]);
       socket.broadcast.emit("reconnected user", users[index].name);
     } else {
       socket.emit("already-exist", {
@@ -53,7 +63,13 @@ io.on("connection", (socket) => {
   });
 
   socket.on("private message", (data) => {
-    const id = data.to > data.from ? data.to + data.from : data.from + data.to;
+    const id = groups.find((g) => g.name === data.to)
+      ? data.to
+      : data.to > data.from
+      ? data.to + data.from
+      : data.from + data.to;
+    const sender = groups.find((g) => g.name === data.to) ? data.to : data.from;
+
     const index = messages.findIndex((msg) => msg.id === id);
     if (index !== -1) {
       messages[index].message.push(data.message);
@@ -62,28 +78,51 @@ io.on("connection", (socket) => {
     }
     socket.to(data.to).emit("private-message", {
       message: data.message,
-      senderName: data.from,
+      senderName: sender,
     });
   });
 
   socket.on("get conversation", (data) => {
-    const id = data.to > data.from ? data.to + data.from : data.from + data.to;
+    let id = data.to > data.from ? data.to + data.from : data.from + data.to;
+    if (groups.find((g) => g.name === data.to)) {
+      id = data.to;
+    }
     const message = messages.find((msg) => msg.id === id);
     socket.emit("get conversation", message);
   });
 
   socket.on("typing", ({ to, type }) => {
-    socket
-      .to(to)
-      .emit("typing", { typierName: socket.username, isTyping: type });
+    if (!groups.length || groups.find((g) => g.name !== to))
+      socket
+        .to(to)
+        .emit("typing", { typierName: socket.username, isTyping: type });
   });
 
-  socket.on("disconnect", () => {
+  socket.on("create group", (group) => {
+    socket.join(group.name);
+    users.forEach((user) => {
+      if (group.members.includes(user.name) || user.name === socket.name) {
+        user.groups
+          ? user.groups.push(group.name)
+          : (user.groups = [group.name]);
+      }
+    });
+    groups.push(group);
+    socket.to(group.members).emit("create group", group);
+  });
+
+  socket.on("join group", (groupName) => {
+    console.log(socket.username, "join", groupName);
+    socket.join(groupName);
+  });
+
+  socket.on("disconnect", async () => {
     users.forEach((user) => {
       if (user.name === socket.username) {
         user.active = false;
       }
     });
+
     socket.broadcast.emit("disconnect user", socket.username);
   });
 });

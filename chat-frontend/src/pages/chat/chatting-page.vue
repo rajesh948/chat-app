@@ -11,6 +11,7 @@
               online
             </h3>
           </div>
+          <div><button @click="toggleGroupForm">Create Group</button></div>
         </li>
       </header>
       <ul>
@@ -22,14 +23,22 @@
           <div class="user-logo">{{ user.name.substr(0, 1) }}</div>
           <div>
             <h2>{{ user.name }}</h2>
-            <h3 v-if="user.active">
-              <span class="status green"></span>
-              online
-            </h3>
-            <h3 v-else>
-              <span class="status orange"></span>
-              offline
-            </h3>
+            <div v-if="user.tag === 'group'">
+              <h3>
+                <span class="status green"></span>
+                group
+              </h3>
+            </div>
+            <div v-else>
+              <h3 v-if="user.active">
+                <span class="status green"></span>
+                online
+              </h3>
+              <h3 v-else>
+                <span class="status orange"></span>
+                offline
+              </h3>
+            </div>
           </div>
           <div class="typing-text" v-if="!selectedUser?.type && user?.type">
             typing....
@@ -50,14 +59,22 @@
           <h2>{{ selectedUser.name }}</h2>
           <div v-if="selectedUser?.type" class="typing-text">typing....</div>
           <div v-else>
-            <h3 v-if="selectedUser.active">
-              <span class="status green"></span>
-              online
-            </h3>
-            <h3 v-else>
-              <span class="status orange"></span>
-              offline
-            </h3>
+            <div v-if="selectedUser.tag === 'group'">
+              <h3>
+                <span class="status green"></span>
+                group
+              </h3>
+            </div>
+            <div v-else>
+              <h3 v-if="selectedUser.active">
+                <span class="status green"></span>
+                online
+              </h3>
+              <h3 v-else>
+                <span class="status orange"></span>
+                offline
+              </h3>
+            </div>
           </div>
         </div>
       </header>
@@ -69,7 +86,7 @@
         >
           <div class="entete">
             <span class="status green"></span>
-            <h2></h2>
+            <h2 v-if="selectedUser.tag === 'group'">{{ msg.own }}</h2>
             <h3>10:12AM, Today</h3>
           </div>
           <div class="message">
@@ -86,18 +103,46 @@
         <a @click="sendMessage">Send</a>
       </footer>
     </main>
+    <popUpBox v-if="isShowBox" @closePopUpBox="toggleGroupForm">
+      <template v-slot:header> Create New Group </template>
+      <template v-slot:content>
+        <div class="form">
+          <label>Group Name:</label>
+          <input type="text" v-model="groupName" />
+          <div v-for="user in users" :key="user.name">
+            <div class="friend-box" v-if="user.tag !== 'group'">
+              <div class="friend-name">
+                <p>{{ user.name }}</p>
+              </div>
+              <div class="friend-btn">
+                <button @click="addUserToGroup(user)">
+                  {{ getBTNTitle(user.name) }}
+                </button>
+                <!-- <button @click="deleteUser(index)">Delete</button> -->
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
+      <template v-slot:footer>
+        <div class="footer-btn">
+          <button @click="createGroup">Create</button>
+        </div>
+      </template>
+    </popUpBox>
   </div>
 </template>
 <script>
 import { socket } from "@/plugins/socket/socket";
 import SvgIcon from "@jamescoyle/vue-icon";
 import { mdiChatAlert } from "@mdi/js";
-
+import popUpBox from "@/components/ui/pop-up-box.vue";
 import { ref } from "vue";
 import { useRouter } from "vue-router";
 export default {
   components: {
     SvgIcon,
+    popUpBox,
   },
   setup() {
     const imgPath = mdiChatAlert;
@@ -116,6 +161,7 @@ export default {
     });
 
     socket.on("users", (data) => {
+      console.log("users:::", data);
       users.value = data.filter((u) => u.name !== loginUser.value.name);
     });
     socket.on("connected user", (user) => {
@@ -140,6 +186,7 @@ export default {
     });
     const onToggleUserMessagePanel = (userName) => {
       selectedUser.value = users.value.find((user) => user.name === userName);
+
       users.value.forEach((user) => {
         if (user.name === userName) {
           user.isShowAlert = false;
@@ -172,13 +219,15 @@ export default {
 
     socket.on("private-message", ({ message, senderName }) => {
       conversation.value.push(message);
-      if (!selectedUser.value || selectedUser.value.name !== senderName) {
+      console.log("on private msg:::", selectedUser.value);
+      if (selectedUser?.value?.name !== senderName) {
         users.value.forEach((user) => {
           if (user.name === senderName) {
             user.isShowAlert = true;
           }
         });
       }
+      console.log(conversation.value);
     });
     let flag = true;
     let timeOut;
@@ -206,6 +255,48 @@ export default {
       }
     });
 
+    // group functionality
+
+    const isShowBox = ref(false);
+    const groupName = ref(null);
+    const groupUsers = ref([]);
+    const toggleGroupForm = () => {
+      groupName.value = null;
+      groupUsers.value = [];
+      isShowBox.value = !isShowBox.value;
+    };
+    const addUserToGroup = (user) => {
+      const index = groupUsers.value.findIndex(
+        (userName) => userName === user.name
+      );
+      index === -1
+        ? groupUsers.value.push(user.name)
+        : groupUsers.value.splice(index, 1);
+    };
+
+    const createGroup = () => {
+      const group = {
+        id: Date.now(),
+        members: groupUsers.value,
+        name: groupName.value,
+        createBy: loginUser.value.name,
+        tag: "group",
+      };
+      socket.emit("create group", group);
+      users.value.push(group);
+      toggleGroupForm();
+    };
+    const getBTNTitle = (userName) => {
+      return groupUsers.value.find((name) => name === userName)
+        ? "Remove"
+        : "Add";
+    };
+
+    socket.on("create group", (group) => {
+      socket.emit("join group", group.name);
+      users.value.push(group);
+    });
+
     return {
       users,
       onToggleUserMessagePanel,
@@ -216,6 +307,12 @@ export default {
       loginUser,
       displayTyping,
       imgPath,
+      isShowBox,
+      toggleGroupForm,
+      groupName,
+      addUserToGroup,
+      getBTNTitle,
+      createGroup,
     };
   },
 };
@@ -248,7 +345,7 @@ main {
 }
 
 aside header {
-  padding: 30px 20px;
+  padding: 30px 10px;
 }
 aside input {
   width: 100%;
@@ -448,5 +545,47 @@ main footer a {
   margin-left: 333px;
   margin-top: 5px;
   display: inline-block;
+}
+
+/* pop-up box css */
+.form {
+  width: 400px;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+
+input {
+  padding: 5px;
+}
+label {
+  margin: 10px 0;
+}
+button {
+  padding: 5px;
+  font-size: 1rem;
+  background-color: #58b666;
+  /* width: 100px; */
+  border: none;
+  border-radius: 4px;
+  color: white;
+  margin: 0 5px;
+  box-shadow: rgba(60, 64, 67, 0.3) 0px 1px 2px 0px,
+    rgba(60, 64, 67, 0.15) 0px 1px 3px 1px;
+}
+
+.friend-box {
+  margin: 5px 0;
+  border: 1px solid;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+}
+.friend-name {
+  width: 30%;
+}
+.friend-name p {
+  font-size: 1.2rem;
+  text-transform: capitalize;
 }
 </style>
